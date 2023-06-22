@@ -1,0 +1,44 @@
+plugins {
+    id 'java'
+}
+
+group = 'net.solovey.poc.iceberg'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    icebergVersion = '1.3.0'
+    awsSdkVersion = '2.20.87'
+}
+
+dependencies {
+    //implementation("org.apache.iceberg:iceberg-api:${icebergVersion}")
+    implementation("org.apache.iceberg:iceberg-core:${icebergVersion}")
+    implementation("org.apache.iceberg:iceberg-data:${icebergVersion}")
+    implementation("org.apache.iceberg:iceberg-parquet:${icebergVersion}")
+    implementation("org.apache.iceberg:iceberg-aws:${icebergVersion}")
+
+    implementation("software.amazon.awssdk:s3:${awsSdkVersion}")
+    implementation("software.amazon.awssdk:sts:${awsSdkVersion}")
+
+    implementation("org.apache.hadoop:hadoop-common:3.3.5") {
+        //transitive = false
+    }
+
+
+    implementation 'org.postgresql:postgresql:42.6.0'
+
+    implementation 'info.picocli:picocli:4.7.4'
+
+    runtimeOnly'org.slf4j:slf4j-simple:2.0.7'
+
+    testImplementation platform('org.junit:junit-bom:5.9.1')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+test {
+    useJUnitPlatform()
+}
