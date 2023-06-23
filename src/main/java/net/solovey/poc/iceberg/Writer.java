@@ -141,24 +141,14 @@ public class Writer implements Callable<Integer> {
         List<Record> records = new ArrayList<>();
         var record = GenericRecord.create(schema_);
         records.add(record.copy(Map.of("id", 1, "data", "one", "part", "a")));
-        records.add(record.copy(Map.of("id", 2, "data", "two", "part", "a")));
+        records.add(record.copy(Map.of("id", 2, "data", "two", "part", "b")));
         records.add(record.copy(Map.of("id", 3, "data", "three", "part", "a")));
-        records.add(record.copy(Map.of("id", 4, "data", "four", "part", "a")));
-
-        PartitionKey partitionKey = new PartitionKey(table_.spec(), table_.schema());
-        partitionKey.partition(records.get(0));
-
-        var outputfileFactory = OutputFileFactory.builderFor(table_, 1, 1).format(FileFormat.PARQUET).build();
-        var appenderFactory = new GenericAppenderFactory(table_.schema(), table_.spec());
+        records.add(record.copy(Map.of("id", 4, "data", "four", "part", "c")));
 
         TaskWriter<Record> taskWriter = new MyTaskWriter(
-            table_.spec(),
+            table_,
             FileFormat.PARQUET,
-            appenderFactory,
-            outputfileFactory,
-            table_.io(),
-            1024*1024,
-            partitionKey
+            1024*1024
         );
 
         for (var r : records) {
@@ -180,30 +170,50 @@ public class Writer implements Callable<Integer> {
 }
 
 class MyTaskWriter extends BaseTaskWriter<Record> {
-    private RollingFileWriter dataWriter;
+    private final Map<PartitionKey, RollingFileWriter> partitionWriters_ = new HashMap<>();
+    private final PartitionKey partitionKeyTemplate_;
 
     public MyTaskWriter(
-        PartitionSpec spec,
+        Table table,
         FileFormat format,
-        FileAppenderFactory<Record> appenderFactory,
-        OutputFileFactory fileFactory,
-        FileIO io,
-        long targetFileSize,
-        PartitionKey partitionKey
+        long targetFileSize
     ) {
-        super(spec, format, appenderFactory, fileFactory, io, targetFileSize);
-        this.dataWriter = new RollingFileWriter(partitionKey);
+        super(
+            table.spec(),
+            format,
+            new GenericAppenderFactory(table.schema(), table.spec()),
+            OutputFileFactory.builderFor(table, 1, 1).format(format).build(),
+            table.io(),
+            targetFileSize
+        );
+        partitionKeyTemplate_ = new PartitionKey(table.spec(), table.schema());
+    }
+
+    private RollingFileWriter rowWriter(Record row) {
+        partitionKeyTemplate_.partition(row);
+        var writer = partitionWriters_.get(partitionKeyTemplate_);
+        if (writer == null) {
+            // make a copy of partition key to be stored in writer
+            var partitionKey = partitionKeyTemplate_.copy();
+            writer = new RollingFileWriter(partitionKey);
+            partitionWriters_.put(partitionKey, writer);
+        }
+        return writer;
     }
 
     @Override
     public void write(Record row) throws IOException {
-        dataWriter.write(row);
+        rowWriter(row).write(row);
     }
 
     @Override
     public void close() throws IOException {
-        if (dataWriter != null) {
-            dataWriter.close();
-        }
+        Tasks
+            .foreach(partitionWriters_.values())
+            .throwFailureWhenFinished()
+            .noRetry()
+            .run(RollingFileWriter::close, IOException.class)
+        ;
+        partitionWriters_.clear();
     }
 }
