@@ -33,6 +33,10 @@ dependencies {
 
     implementation 'info.picocli:picocli:4.7.4'
 
+    constraints {
+        implementation 'com.github.luben:zstd-jni:1.5.5-4'
+    }
+
     runtimeOnly'org.slf4j:slf4j-simple:2.0.7'
 
     testImplementation platform('org.junit:junit-bom:5.9.1')

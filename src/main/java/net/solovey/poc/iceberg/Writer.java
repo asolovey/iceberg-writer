@@ -7,9 +7,14 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.data.GenericAppenderFactory;
 import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.data.IcebergGenerics;
 import org.apache.iceberg.data.Record;
-import org.apache.iceberg.io.*;
+import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.io.BaseTaskWriter;
+import org.apache.iceberg.io.OutputFileFactory;
+import org.apache.iceberg.io.TaskWriter;
 import org.apache.iceberg.jdbc.JdbcCatalog;
+import org.apache.iceberg.parquet.VectorizedParquetReader;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.Tasks;
 import picocli.CommandLine;
@@ -122,8 +127,14 @@ public class Writer implements Callable<Integer> {
             table_ = catalog_.loadTable(identifier);
         }
         else {
+            var sortOrder = SortOrder.builderFor(schema_).asc("id").build();
             table_ = catalog_.buildTable(identifier, schema_)
                 .withPartitionSpec(PartitionSpec.builderFor(schema_).identity("part").build())
+                .withSortOrder(sortOrder)
+                .withProperty(TableProperties.FORMAT_VERSION, "2")
+                .withProperty(TableProperties.DEFAULT_FILE_FORMAT, FileFormat.PARQUET.name())
+                .withProperty(TableProperties.PARQUET_COMPRESSION, "zstd")
+                .withProperty(TableProperties.PARQUET_COMPRESSION_LEVEL, "9")
                 .create()
             ;
         }
@@ -145,21 +156,42 @@ public class Writer implements Callable<Integer> {
         records.add(record.copy(Map.of("id", 3, "data", "three", "part", "a")));
         records.add(record.copy(Map.of("id", 4, "data", "four", "part", "c")));
 
-        TaskWriter<Record> taskWriter = new MyTaskWriter(
+        DataFile[] result;
+
+        try (TaskWriter<Record> taskWriter = new MyTaskWriter(
             table_,
             FileFormat.PARQUET,
             1024*1024
-        );
-
-        for (var r : records) {
-            taskWriter.write(r);
+        )) {
+            for (var r : records) {
+                taskWriter.write(r);
+            }
+            result = taskWriter.dataFiles(); // calls complete() (which calls close())
         }
 
-        var result = taskWriter.complete();
-
         var append = table_.newAppend();
-        Tasks.foreach(result.dataFiles()).run(append::appendFile, IOException.class);
+        Tasks.foreach(result).run(append::appendFile, IOException.class);
         append.commit();
+
+        try (var reader = IcebergGenerics
+            .read(table_)
+            .select("id")
+            //.where(Expressions.equal("part", "b"))
+            .build()
+        ) {
+            reader.forEach(System.out::println);
+        }
+
+        try (var files = table_.newScan()
+            .select("id")
+            .filter(Expressions.equal("part", "a"))
+            .planFiles()
+        ) {
+            files.forEach(System.out::println);
+        }
+
+        //AggregateEvaluator
+
         return 0;
     }
 
@@ -181,8 +213,11 @@ class MyTaskWriter extends BaseTaskWriter<Record> {
         super(
             table.spec(),
             format,
-            new GenericAppenderFactory(table.schema(), table.spec()),
-            OutputFileFactory.builderFor(table, 1, 1).format(format).build(),
+            new GenericAppenderFactory(table.schema(), table.spec())
+                .setAll(table.properties()),
+            OutputFileFactory.builderFor(table, 1, 1)
+                .format(format)
+                .build(),
             table.io(),
             targetFileSize
         );
