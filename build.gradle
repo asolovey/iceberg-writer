@@ -28,7 +28,6 @@ dependencies {
         //transitive = false
     }
 
-
     implementation 'org.postgresql:postgresql:42.6.0'
 
     implementation 'info.picocli:picocli:4.7.4'
