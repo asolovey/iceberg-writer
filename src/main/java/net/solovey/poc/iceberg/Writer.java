@@ -14,7 +14,6 @@ import org.apache.iceberg.io.BaseTaskWriter;
 import org.apache.iceberg.io.OutputFileFactory;
 import org.apache.iceberg.io.TaskWriter;
 import org.apache.iceberg.jdbc.JdbcCatalog;
-import org.apache.iceberg.parquet.VectorizedParquetReader;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.Tasks;
 import picocli.CommandLine;
@@ -148,7 +147,35 @@ public class Writer implements Callable<Integer> {
 
         initCatalog();
         initTable();
+        insertData();
+        readRecords();
+        readFiles();
 
+        return 0;
+    }
+
+    private void readFiles() throws IOException {
+        try (var files = table_.newScan()
+            .select("id")
+            .filter(Expressions.equal("part", "a"))
+            .planFiles()
+        ) {
+            files.forEach(System.out::println);
+        }
+    }
+
+    private void readRecords() throws IOException {
+        try (var reader = IcebergGenerics
+            .read(table_)
+            .select("id")
+            .where(Expressions.equal("part", "a"))
+            .build()
+        ) {
+            reader.forEach(System.out::println);
+        }
+    }
+
+    private void insertData() throws IOException {
         List<Record> records = new ArrayList<>();
         var record = GenericRecord.create(schema_);
         records.add(record.copy(Map.of("id", 1, "data", "one", "part", "a")));
@@ -172,27 +199,6 @@ public class Writer implements Callable<Integer> {
         var append = table_.newAppend();
         Tasks.foreach(result).run(append::appendFile, IOException.class);
         append.commit();
-
-        try (var reader = IcebergGenerics
-            .read(table_)
-            .select("id")
-            //.where(Expressions.equal("part", "b"))
-            .build()
-        ) {
-            reader.forEach(System.out::println);
-        }
-
-        try (var files = table_.newScan()
-            .select("id")
-            .filter(Expressions.equal("part", "a"))
-            .planFiles()
-        ) {
-            files.forEach(System.out::println);
-        }
-
-        //AggregateEvaluator
-
-        return 0;
     }
 
     public static void main(String... args) {
