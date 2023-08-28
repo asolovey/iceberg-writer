@@ -4,13 +4,13 @@ from textwrap import dedent
 
 settings = []
 
-for p in range(8, 20):
+for p in range(8, 22):
     settings.append((p, 2))
 
 for p in range(9, 25):
     settings.append((p, 4))
 
-for p in range(18, 25):
+for p in range(16, 25):
     settings.append((p, 6))
 
 
@@ -18,11 +18,12 @@ for t in settings:
     (precision, scale) = t
     ddl = dedent(f"""
         use iceberg.decimals;
-        create table d{precision}p{scale} (i int, j bigint, d decimal({precision}, {scale}));
+        drop table if exists d{precision}p{scale};
+        create table if not exists d{precision}p{scale} (i int, j bigint, d decimal({precision}, {scale}));
 
         insert into d{precision}p{scale}
         select i, j,
-            pow(10, {precision} - {scale} - 8) - 1 + (j % pow(10, {precision} - {scale} - 1)) + cast(i as decimal({precision}, {scale}))/9973
+            (j % pow(10, {precision} - {scale} - 1)) + cast(i as decimal({precision}, {scale}))/9973
         from
             unnest(sequence(1, 10000)) as t1(i)
             cross join unnest(sequence(i*1000, i*1000+9999)) as t2(j)
