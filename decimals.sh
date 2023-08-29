@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+trino --execute 'create schema if not exists iceberg.decimals;'
+
 for i in init-*.sql; do echo $i; trino --progress=true -f=$i; done
 sleep 30
 for i in optimize-*.sql; do echo $i; trino --progress=true -f=$i; done

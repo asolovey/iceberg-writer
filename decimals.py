@@ -23,10 +23,10 @@ for t in settings:
 
         insert into d{precision}p{scale}
         select i, j,
-            (j % pow(10, {precision} - {scale} - 1)) + cast(i as decimal({precision}, {scale}))/9973
+            (j*10000+i) % (pow(10, {precision}-{scale})-1) + cast((i+j) % 9973 as decimal({precision}, {scale}))/9973
         from
             unnest(sequence(1, 10000)) as t1(i)
-            cross join unnest(sequence(i*1000, i*1000+9999)) as t2(j)
+            cross join unnest(sequence(1, 10000)) as t2(j)
         ;
         alter table d{precision}p{scale} execute optimize;
     """)
